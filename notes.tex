@@ -1,0 +1,434 @@
+\documentclass{amsart}
+
+\usepackage{amsthm}
+\usepackage{amssymb}
+\usepackage{listings}
+\usepackage{color}
+\usepackage{courier}
+\definecolor{mygreen}{RGB}{28,172,0} % color values Red, Green, Blue
+\definecolor{mylilas}{RGB}{170,55,241}
+\lstset{language=Matlab,%
+    basicstyle=\footnotesize\ttfamily,
+    breaklines=true,%
+    morekeywords={matlab2tikz},
+    keywordstyle=\color{blue},%
+    morekeywords=[2]{1}, keywordstyle=[2]{\color{black}},
+    identifierstyle=\color{black},%
+    stringstyle=\color{mylilas},
+    commentstyle=\color{mygreen},%
+    showstringspaces=false,%without this there will be a symbol in the places where there is a space
+    numbers=none,%
+    numberstyle={\tiny \color{black}},% size of the numbers
+    numbersep=9pt, % this defines how far the numbers are from the text
+    emph=[1]{for,end,break},emphstyle=[1]\color{red}, %some words to emphasise
+    %emph=[2]{word1,word2}, emphstyle=[2]{style},    
+}
+
+
+\theoremstyle{definition}
+\newtheorem{remark}{Remark}
+\newtheorem{exercise}{\color{red}Exercise}
+\newtheorem{example}{Example}
+
+\title[Programming finite elements in Matlab]{Programming finite elements in high-level languages with a focus on Matlab}
+\author{Tom Gustafsson}
+
+\begin{document}
+
+\maketitle
+
+\tableofcontents
+
+\section{Variational problems}
+
+Finite element method for linear problems concerns the computer
+solution of the following \emph{variational problem}: find $u
+\in U$ such that
+\begin{equation}
+  a(u,v) = l(v),
+\end{equation}
+for every $v \in V$. Here $U$ and $V$ are Hilbert spaces with the
+norms $\|\cdot\|_U$ and $\|\cdot\|_V$, $a \in \mathcal{L}(U \times V;
+\mathbb{R})$ is a continuous bilinear form and $l \in
+\mathcal{L}(V;\mathbb{R})$ is a continuous linear form.
+
+Recall that if $U=V$ the existence and uniqueness of the solution
+follows from the Lax--Milgram theorem if the bilinear form $a$ is
+\emph{coercive} in $V$. If $a$ is not coercive or if $U\neq V$, a more
+general theory is required, see Babu\v{s}ka--Aziz~\cite{BA72}.
+
+\begin{remark}
+    The uniqueness aspect has no effect on the practical programming
+in the sense that using finite elements one can easily \emph{try} to
+discretize and solve continuous problems that are not
+well-posed. Usually such approaches lead to singular,
+non-invertible, matrix systems.
+\end{remark}
+
+\section{Galerkin methods}
+
+Suppose that there exist finite dimensional subspaces $U_N \subset U$
+and $V_M \subset V$ with the dimensions $N$ and $M$, respectively. The
+\emph{discrete variational problem} reads: find $u_N \in U_N$ such
+that
+\begin{equation}
+  \label{eq:dweakf}
+  a(u_N,v) = l(v),
+\end{equation}
+for every $v \in V_M$.
+
+\begin{remark}
+  If $U_N = V_M$, the resulting method is sometimes referred to as the
+  \emph{Ritz--Galerkin method}. Otherwise, the term
+  \emph{Petrov--Galerkin method} is used.
+\end{remark}
+
+Suppose that $U_N = \mathrm{span}\,\{\varphi_i\}_{i=1}^N$ and $V_N =
+\mathrm{span}\,\{\xi_i\}_{i=1}^M$ for some basis functions $\varphi_i
+\in U_N$, $i\in\{1,\cdots,N\}$ and $\xi_i \in V_M$,
+$i\in\{1,\cdots,M\}$.
+Then we may expand the solution as
+\begin{equation}
+  u_N = \sum_{j=1}^N u_j \varphi_j,
+\end{equation}
+where $u_j \in \mathbb{R}$, $j\in\{1,\cdots,N\}$, are the degrees of
+freedom. Substituting this expanded solution to \eqref{eq:dweakf}
+leads to the matrix system
+\begin{equation}
+  \label{eq:matrixsystem}
+  A x = b,
+\end{equation}
+where $A \in \mathbb{R}^{M \times N}$, $A_{ij} = a(\varphi_j, \xi_i)$, $b \in \mathbb{R}^M$, $b_i = l(\xi_i)$ and $x \in \mathbb{R}^N$, $x_i = u_i$.
+
+\begin{exercise}
+  Derive \eqref{eq:matrixsystem} from \eqref{eq:dweakf}.
+\end{exercise}
+
+The programming aspect of the Galerkin method is focused on
+understanding and implementing the \emph{assembly procedure} that
+constructs the pair $(A,b)$ given a bilinear form $a$, linear form $l$
+and a set of basis functions. It is now \emph{crucial} to understand
+that given a basis and a bilinear form, we \emph{always} have a corresponding
+matrix that approximates the continuous operator.
+
+\begin{remark}
+    In mathematical literature the finite dimensional spaces $U_N$ and
+$V_M$ are sometimes defined by limiting the set of arbitrary functions
+to, e.g., piecewise polynomial functions. In such cases the basis is
+implicit in the sense that we must do additional work to find the
+basis functions or evaluate them pointwise.  Thus, from a programming
+point-of-view an explicit basis is usually more preferable.
+\end{remark}
+
+\subsection{On the choice of basis functions}
+
+Let us briefly discuss through examples how the choice of the basis
+affects to the properties of the matrix $A$. In the following examples
+$U=V$ and $U_N = V_M$.
+
+\begin{example}
+  \label{ex:diagonal}
+  Consider the bilinear and linear forms
+  \begin{equation}
+    a(w,v) = \int_0^1 w^\prime v^\prime\,\mathrm{d}x, \quad l(v) = \int_0^1 v\,\mathrm{d}x,
+  \end{equation}
+  and the basis $\{\sin (\pi (2n-1) x)\}_{n=1}^N$. In terms of Matlab
+  code, we have
+  \begin{lstlisting}
+    syms x
+    N=5;
+    dphi=diff(sin(pi*(1:2:(2*N))*x),x);
+    A=int(dphi'*dphi,x,0,1);
+  \end{lstlisting}
+  which outputs the matrix
+  \begin{equation}
+\left(\begin{array}{ccccc} \frac{{\pi}^2}{2} & 0 & 0 & 0 & 0\\ 0 & \frac{9\, {\pi}^2}{2} & 0 & 0 & 0\\ 0 & 0 & \frac{25\, {\pi}^2}{2} & 0 & 0\\ 0 & 0 & 0 & \frac{49\, {\pi}^2}{2} & 0\\ 0 & 0 & 0 & 0 & \frac{81\, {\pi}^2}{2} \end{array}\right).
+  \end{equation}
+  Notice that the matrix is diagonal. This means that the solution
+will be quick.  The corresponding linear form can be assembled and
+the system solved with
+  \begin{lstlisting}
+    b=int(sin(pi*(1:2:(2*N))*x),x,0,1)';
+    x=A\b;
+  \end{lstlisting}
+\end{example}
+
+\begin{exercise}
+  Draw the solution given by the Galerkin method in the previous example.
+\end{exercise}
+
+\begin{remark}
+  The usage of symbolic integration is not a good idea in general due
+to a high computational cost in comparison to numerical integration.
+\end{remark}
+
+\begin{example}
+  Consider the same bilinear form as in Example~\ref{ex:diagonal}
+  and the polynomial basis $\{x^n(1-x)^n\}_{n=1}^N$. Now the matrix $A$ is
+  \begin{equation}
+    \left(\begin{array}{ccccc} \frac{1}{3} & \frac{1}{15} & \frac{1}{70} & \frac{1}{315} & \frac{1}{1386}\\ \frac{1}{15} & \frac{2}{105} & \frac{1}{210} & \frac{4}{3465} & \frac{5}{18018}\\ \frac{1}{70} & \frac{1}{210} & \frac{1}{770} & \frac{1}{3003} & \frac{1}{12012}\\ \frac{1}{315} & \frac{4}{3465} & \frac{1}{3003} & \frac{4}{45045} & \frac{1}{43758}\\ \frac{1}{1386} & \frac{5}{18018} & \frac{1}{12012} & \frac{1}{43758} & \frac{5}{831402} \end{array}\right).
+  \end{equation}
+  Notice that this time the matrix is full and hence the solution of
+the linear system requires more effort.
+\end{example}
+
+Based on the examples, we can deduce that the choice of the basis (or,
+equivalently, the subspace $V_N$) has an effect on
+\begin{itemize}
+  \item the \emph{sparsity
+    pattern} of the resulting matrix, and
+    \item the \emph{condition
+number}\footnote{As given by the Matlab function \emph{cond}.} which for the
+former matrix is 81 whereas the condition number of the latter matrix
+is approximately $2.1 \cdot 10^8$.
+\end{itemize}
+Moreover, let $P_N : V \rightarrow V_N$ be an orthogonal
+projection. Using the continuity and coercivity of $a$, we get
+\begin{align*}
+  \|u-u_N\|_V^2 &\leq C^\prime a(u-u_N,u-u_N) \\
+                &= C^\prime a(u-u_N,u-P_N u) \\
+  &\leq C \|u-u_N\|_V \|u-P_N u\|_V,
+\end{align*}
+for some $C, C^\prime >0$. This leads to
+\begin{equation}
+  \|u-u_N\|_V \leq C \|u-P_N u\|_V,
+\end{equation}
+which essentially means that the error (in the sense of $\|u-u_N\|_V$)
+depends on \emph{how well the space $V_N$ can represent functions of
+the space $V$}. In an ``ideal case'' the exact solution belongs to the
+discrete space $V_N$ leading to zero error. In practice this is rarely
+the case.
+
+Everything we have discussed so far applies to all Galerkin methods.
+Next we focus on a particular Galerkin method called the \emph{finite
+element method}.
+
+\section{Finite element method}
+
+Finite element methods are special Galerkin methods where the basis
+functions are defined using a \emph{mesh}. In the following we
+consider two dimensional problems but many parts can be
+straightforwardly generalized to three dimensional problems.
+
+\subsection{Mesh}
+
+Let $\Omega \subset \mathbb{R}^2$ a polygonal domain. We split the
+domain $\Omega$ into non-overlapping triangles or \emph{elements} $T
+\in \mathcal{T}$ that satisfy
+\begin{equation}
+  \overline{\Omega} = \bigcup_{T \in \mathcal{T}} \overline{T}.
+\end{equation}
+The collection of elements $\mathcal{T}$ is called a mesh.  One
+frequently encounters the notion of a \emph{mesh parameter $h_T$ of a
+triangle $T$} that describes the maximum edge length of $T$, i.e.,
+\begin{equation}
+  h_T = \max_{x,y \in T} \|x-y\|,
+\end{equation}
+where $\|\cdot\|$ is the Euclidean norm. The mesh parameter of a
+mesh $\mathcal{T}$ is then
+\begin{equation}
+  h = \max_{T \in \mathcal{T}} h_T.
+\end{equation}
+
+Let $N$ be the number of vertices in the mesh and let $M$ be the
+number of elements.  In high-level array-based languages such as
+Matlab, a convenient way to represent triangular (and other) meshes is
+to use two matrices $p \in \mathbb{R}^{2 \times N}$ and $t \in
+\mathbb{R}^{3 \times M}$. In the former, each column corresponds to
+$x$ and $y$ coordinates of a vertex and in the latter each column
+corresponds to the three indices of the vertices of an element.
+
+\begin{example}
+  Using Matlab PDE Toolbox we can generate a triangular mesh for the
+  unit square with $h\leq 0.1$ using the command
+\begin{lstlisting}
+    [p,~,t]=initmesh(decsg([3 4 0 1 1 0 0 0 1 1]'),'Hmax',0.1)
+\end{lstlisting}
+  The matrix $t$ given by \emph{initmesh} has one extra row which
+  in case of multiple domains tells us the subdomain in which the
+  triangle lies. We do not need this information and therefore we
+  strip the last row as follows:
+\begin{lstlisting}
+    t=t(1:3,:);
+\end{lstlisting}
+  The mesh can now be visualized with
+\begin{lstlisting}
+    trimesh(t',p(1,:),p(2,:));
+\end{lstlisting}
+\end{example}
+
+\begin{exercise}
+  Visualize two meshes with different mesh parameters.
+\end{exercise}
+
+\subsection{Definition of the piecewise linear basis functions}
+
+In this text we focus on the \emph{piecewise linear basis}.  Each
+basis function is defined so that it has value 1 in one vertex of the
+mesh and value 0 in all other vertices. Furthermore, the basis
+function is linear inside each element.
+
+\begin{example}
+  Let us generate a mesh and visualize all the basis functions.
+  \begin{lstlisting}
+    [p,~,t]=initmesh(decsg([3 4 0 1 1 0 0 0 1 1]'),'Hmax',0.5);
+    t=t(1:3,:);
+    figure;
+    % there is one basis function per node, loop over nodes
+    for itr = 1:size(p,2)
+        subplot(ceil(sqrt(size(p,2))),ceil(sqrt(size(p,2))),itr);
+        % the basis function is zero everywhere else ...
+        u=zeros(size(p,2),1);
+        % ... but one node.
+        u(itr)=1;
+        % draw the resulting surface
+        trisurf(t',p(1,:),p(2,:),u);
+        colormap parula;
+        shading interp;
+        view(2);
+    end
+  \end{lstlisting}
+  From the resulting figure you can probably see why these
+  kind of basis functions are sometimes referred to as
+  the \emph{hat functions}.
+\end{example}
+
+These kind of basis functions have some nice properties.
+For example:
+\begin{enumerate}
+\item They are based on a mesh and hence any domain
+  that can be meshed is amenable to discretization.
+\item The basis functions are nonzero on a very small area.
+  Therefore, most entries of the resulting system matrix are zero
+  and the matrix will be sparse.
+\item We can easily project an arbitrary function to the
+  basis by evaluating it at the vertices of the mesh.
+\end{enumerate}
+
+\subsection{Assembly of finite elements}
+
+Let us denote by $\varphi_i$, $i \in \{1, \cdots, N\}$ the set of
+piecewise linear basis functions defined by the mesh $\mathcal{T}$
+of the domain $\Omega$.
+Consider the bilinear form
+\begin{equation}
+  a(w,v) = \int_\Omega \nabla w \cdot \nabla v\,\mathrm{d}x.
+\end{equation}
+Our goal is to construct the matrix $A \in \mathbb{R}^{N \times N}$
+with the entries $A_{ij} = a(\varphi_j, \varphi_i)$.  Since $N$ can be
+very large and a large portion of the values $A_{ij}$ are zero, it is
+not a good idea to evaluate each $a(\varphi_j, \varphi_i)$
+separately. Instead, we evaluate \emph{all nonzero terms} of the form
+\begin{equation}
+  \label{eq:integral}
+    \int_T \nabla \varphi_j \cdot \nabla \varphi_i\,\mathrm{d}x, \quad T \in \mathcal{T}, \quad i,j \in \{1,\cdots,N\},
+\end{equation}
+and add them together appropriately to \emph{assemble} $A$.
+
+\begin{exercise}
+  Download the commented version of the Matlab class template with the command
+  \begin{lstlisting}
+    unzip('http://super.org/file.zip')
+  \end{lstlisting}
+  Read through \emph{LinearAssembler.m} and try to run the tests with
+  \begin{lstlisting}
+    run(LinearAssemblerTests)
+  \end{lstlisting}
+\end{exercise}
+
+Next we start introducing necessary concepts to implement the methods
+of the class \verb|LinearAssembly|. We first implement the static
+methods, secondly we write the constructor which does some
+precomputations and finally implement the methods that assemble
+bilinear and linear forms.
+
+\subsection{Reference element}
+
+Evaluation of the integral \eqref{eq:integral} can be done
+systematically by mapping it to the \emph{reference triangle}
+$\widehat{T}$ defined as
+\begin{equation}
+  \widehat{T} = \{ (\widehat{x}, \widehat{y}) : \widehat{x} \geq 0,~ \widehat{y} \geq 0,~ \widehat{x}+\widehat{y}\leq 1 \}.
+\end{equation}
+We end up evaluating integrals of polynomials on the reference
+triangle and for this we require \emph{quadrature rules}. The idea of
+quadrature rules is to replace the integral with a sum, i.e., for
+a given polynomial $p \in P_n(\widehat{T})$
+and triplets $(\widehat{x}_k,\widehat{y}_k,w_k)$, $k \in \{1, \cdots, M\}$,
+we write
+\begin{equation}
+  \int_{\widehat{T}} p(\widehat{x},\widehat{y}) \,\mathrm{d}\widehat{x}\,\mathrm{d}\widehat{y} \approx \sum_{k = 1}^{M} p(\widehat{x}_k,\widehat{y}_k) w_k.
+\end{equation}
+\begin{remark}
+  For any given polynomial order $n$ the quadrature rule can be exact
+  if $M$ and the triplets are chosen right. The construction of exact
+  rules is, however, non-trivial. See, e.g., Dunavant~\cite{D85} where
+  an exact rule for second order polynomials is given by the triplets
+  \begin{equation}
+    (\tfrac{1}{3},\tfrac{1}{3},\tfrac{1}{6}), \quad 
+    (\tfrac{2}{3},\tfrac{1}{3},\tfrac{1}{6}), \quad 
+    (\tfrac{1}{3},\tfrac{2}{3},\tfrac{1}{6}).
+  \end{equation}
+\end{remark}
+\begin{exercise}
+  Implement the method \verb|localQuadrature|.
+\end{exercise}
+Let $F_T : \widehat{T} \rightarrow T$ be an affine mapping of the form
+\begin{equation}
+  \begin{bmatrix} x \\ y \end{bmatrix} = F_T(\widehat{x},\widehat{y}) = B_T\begin{bmatrix} \widehat{x} \\ \widehat{y}\end{bmatrix}+c_T, 
+\end{equation}
+where $B_T \in \mathbb{R}^{2 \times 2}$ and $c_T \in \mathbb{R}^{2 \times 1}$
+depend on the location and the shape of the triangle $T$.
+Notice that we denote by $(x,y)$ points in the global
+coordinate system and by $(\widehat{x},\widehat{y})$ points in the
+coordinate system of the reference element.
+\begin{exercise}
+  Find explicit expressions for $B_T$ and $c_T$ in terms of the
+vertices of the element $T$ and implement the method \verb|affineMappings|.
+\end{exercise}
+\begin{exercise}
+  Implement the method \verb|F| which maps points from the local coordinate
+  system to the global coordinate system using $B_T$ and $c_T$.
+\end{exercise}
+\subsection{Transforming the local basis}
+Let the local basis functions be defined as
+\begin{equation}
+  \widehat{\varphi}_1(\widehat{x},\widehat{y}) = 1 - \widehat{x} - \widehat{y}, \quad \widehat{\varphi}_2(\widehat{x},\widehat{y}) = \widehat{x}, \quad \widehat{\varphi}_3(\widehat{x},\widehat{y}) = \widehat{y}.
+\end{equation}
+Our goal is to describe the global basis functions $\varphi_i$,
+$i\in\{1,\cdots,N\}$, using these local basis functions.
+\begin{exercise}
+  Implement the method \verb|localBasis|.
+\end{exercise}
+Let $m$ be the column corresponding to the triangle $T$ in the element
+matrix $t$. The global basis functions that are nonzero in element $T$
+can be now defined as
+\begin{equation}
+  \label{eq:phi}
+  \varphi_{e_i^{\mathrm{T}}te_m}(F_T(\widehat{x},\widehat{y}))= \widehat{\varphi}_i(\widehat{x},\widehat{y}),
+\end{equation}
+for each $i \in \{1,2,3\}$. Using the chain rule, we deduce that the
+derivatives transform as follows:
+\begin{equation}
+  \label{eq:dphi}
+  \nabla \varphi_{e_i^{\mathrm{T}}te_m}(F_T(\widehat{x},\widehat{y})) = B_T^{-\mathrm{T}} \widehat{\nabla} \widehat{\varphi}_i(\widehat{x},\widehat{y}),
+\end{equation}
+\begin{exercise}
+  Implement \verb|globalBasis| which maps the local basis to global
+basis using \eqref{eq:phi} and \eqref{eq:dphi}.
+\end{exercise}
+Finally, the integral \eqref{eq:integral} is transformed as
+\begin{equation}
+  \label{eq:integraltransform}
+    \int_T \nabla \varphi_{e_j^{\mathrm{T}}te_m} \cdot \nabla \varphi_{e_i^{\mathrm{T}}te_m}\,\mathrm{d}x = \int_{\widehat{T}} B_K^{-\mathrm{T}}\widehat{\nabla} \widehat{\varphi}_j \cdot B_K^{-\mathrm{T}}\widehat{\nabla}\widehat{\varphi}_i|\det B_K|\,\mathrm{d}\widehat{x}.
+\end{equation}
+\begin{exercise}
+  Implement \verb|determinant| for computing the determinant in \eqref{eq:integraltransform}.
+\end{exercise}
+
+\begin{thebibliography}{1}
+\bibitem{BA72} I.~Babu\v{s}ka, A.~K.~Aziz. The Mathematical Foundations of the Finite Element Method with Applications to Partial Differential Equations. Academic Press (1972).
+\bibitem{D85} D.~A.~Dunavant. High degree efficient symmetrical Gaussian quadrature rules for the triangle (1985).
+\end{thebibliography}
+
+\end{document}
