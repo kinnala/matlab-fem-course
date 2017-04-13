@@ -326,13 +326,13 @@ separately. Instead, we evaluate \emph{all nonzero terms} of the form
 and add them together appropriately to \emph{assemble} $A$.
 
 \begin{exercise}
-  Download the commented version of the Matlab class template with the command
+  Download the Matlab class template with the command
   \begin{lstlisting}
-    unzip('http://super.org/file.zip')
+    unzip('https://github.com/kinnala/matlab-fem-course/archive/release.zip')
   \end{lstlisting}
   Read through \emph{LinearAssembler.m} and try to run the tests with
   \begin{lstlisting}
-    run(LinearAssemblerTests)
+    runtests LinearAssemblerTests
   \end{lstlisting}
 \end{exercise}
 
@@ -417,7 +417,7 @@ derivatives transform as follows:
   Implement \verb|globalBasis| which maps the local basis to global
 basis using \eqref{eq:phi} and \eqref{eq:dphi}.
 \end{exercise}
-Finally, the integral \eqref{eq:integral} is transformed as
+Finally, the integral \eqref{eq:integral} is transformed to
 \begin{equation}
   \label{eq:integraltransform}
     \int_T \nabla \varphi_{e_j^{\mathrm{T}}te_m} \cdot \nabla \varphi_{e_i^{\mathrm{T}}te_m}\,\mathrm{d}x = \int_{\widehat{T}} B_K^{-\mathrm{T}}\widehat{\nabla} \widehat{\varphi}_j \cdot B_K^{-\mathrm{T}}\widehat{\nabla}\widehat{\varphi}_i|\det B_K|\,\mathrm{d}\widehat{x}.
